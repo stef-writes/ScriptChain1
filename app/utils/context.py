@@ -123,9 +123,26 @@ class GraphContextManager:
         return contexts
 
     def get_node_output(self, node_id: str) -> Any:
-        """Get the output of a specific node"""
-        # Implementation depends on how node outputs are stored
-        # This is a placeholder - implement based on your storage mechanism
+        """Get the output of a specific node.
+        
+        Args:
+            node_id: ID of the node to get output for
+            
+        Returns:
+            The node's output from the context cache, or None if not found
+            
+        Raises:
+            ValueError: If the node_id is not found in the graph
+        """
+        if node_id not in self.graph.nodes:
+            raise ValueError(f"Node {node_id} not found in graph")
+            
+        # First check the context cache
+        if node_id in self.context_cache:
+            return self.context_cache[node_id]
+            
+        # If not in cache, return None and log warning
+        logger.warning(f"No output found for node {node_id} in context cache")
         return None
 
     def update_context(self, node_id: str, content: Any) -> None:

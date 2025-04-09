@@ -136,7 +136,7 @@ class ScriptChain:
         self.graph.add_node(node_config.id)
         for dep in node_config.dependencies:
             self.graph.add_edge(dep, node_config.id)
-
+                    
     def add_edge(self, from_node_id: str, to_node_id: str) -> None:
         """Add a dependency edge between nodes with validation.
         
@@ -223,7 +223,7 @@ class ScriptChain:
 
     async def execute(self) -> NodeExecutionResult:
         """Execute the workflow.
-        
+            
         Returns:
             NodeExecutionResult with success/failure and output
         """
@@ -506,28 +506,28 @@ class ScriptChain:
             try:
                 result = await node.execute()
                 if result.success:
-                    return result
+            return result
                 attempt += 1
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)  # Exponential backoff
-            except Exception as e:
+        except Exception as e:
                 logger.error(f"Node {node_id} execution failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 attempt += 1
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)  # Exponential backoff
                 else:
-                    return NodeExecutionResult(
-                        success=False,
-                        error=str(e),
-                        metadata=NodeMetadata(
-                            node_id=node_id,
+            return NodeExecutionResult(
+                success=False,
+                error=str(e),
+                metadata=NodeMetadata(
+                    node_id=node_id,
                             node_type=node.type,
                             start_time=start_time,
                             end_time=datetime.utcnow(),
-                            error_type=e.__class__.__name__
-                        )
-                    )
-        
+                    error_type=e.__class__.__name__
+                )
+            )
+
         return NodeExecutionResult(
             success=False,
             error=f"Node {node_id} failed after {max_retries} attempts",
