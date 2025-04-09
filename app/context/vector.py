@@ -5,6 +5,7 @@ Vector store for context management and similarity search
 from typing import List, Dict, Any, Optional
 import numpy as np
 from app.utils.logging import logger
+from app.models.vector_store import VectorStoreConfig, SimilarityMetric
 
 class VectorStore:
     """Vector store for context management and similarity search"""
@@ -22,9 +23,18 @@ class VectorStore:
             dimension: Dimension of vectors
             metric: Distance metric to use (cosine, euclidean, dot)
         """
-        self.index_name = index_name
-        self.dimension = dimension
-        self.metric = metric
+        self.config = VectorStoreConfig(
+            index_name=index_name,
+            dimension=dimension,
+            metric=SimilarityMetric.COSINE if metric == "cosine" else SimilarityMetric.DOT,
+            environment="test",
+            pod_type="p1",
+            replicas=1,
+            use_inference=True,
+            inference_model="text-embedding-ada-002",
+            api_key="test-key",
+            batch_size=100
+        )
         self.vectors: Dict[str, np.ndarray] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
         
@@ -46,9 +56,9 @@ class VectorStore:
             vector: Vector to store
             metadata: Optional metadata to store with vector
         """
-        if vector.shape != (self.dimension,):
+        if vector.shape != (self.config.dimension,):
             raise ValueError(
-                f"Vector dimension mismatch. Expected {self.dimension}, "
+                f"Vector dimension mismatch. Expected {self.config.dimension}, "
                 f"got {vector.shape[0]}"
             )
             
@@ -75,19 +85,19 @@ class VectorStore:
         if not self.vectors:
             return []
             
-        if query_vector.shape != (self.dimension,):
+        if query_vector.shape != (self.config.dimension,):
             raise ValueError(
-                f"Query vector dimension mismatch. Expected {self.dimension}, "
+                f"Query vector dimension mismatch. Expected {self.config.dimension}, "
                 f"got {query_vector.shape[0]}"
             )
             
         scores = {}
         for vector_id, vector in self.vectors.items():
-            if self.metric == "cosine":
+            if self.config.metric == "cosine":
                 score = np.dot(query_vector, vector) / (
                     np.linalg.norm(query_vector) * np.linalg.norm(vector)
                 )
-            elif self.metric == "euclidean":
+            elif self.config.metric == "euclidean":
                 score = -np.linalg.norm(query_vector - vector)
             else:  # dot product
                 score = np.dot(query_vector, vector)
@@ -119,4 +129,4 @@ class VectorStore:
         """Clear all vectors and metadata"""
         self.vectors.clear()
         self.metadata.clear()
-        logger.debug(f"Cleared vector store {self.index_name}") 
+        logger.debug(f"Cleared vector store {self.config.index_name}") 

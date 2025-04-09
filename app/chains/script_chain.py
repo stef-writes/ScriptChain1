@@ -37,8 +37,8 @@ class ScriptChain:
         max_context_tokens: int = 4000,
         callbacks: Optional[List[ScriptChainCallback]] = None,
         concurrency_level: int = 10,
-        vector_store_config: Optional[Dict] = None,
-        llm_config: Optional[Dict[str, Any]] = None
+        vector_store_config: Optional[VectorStoreConfig] = None,
+        llm_config: Optional[Union[Dict[str, Any], LLMConfig]] = None
     ):
         """Initialize the script chain with enhanced configuration"""
         self.chain_id = f"chain_{uuid4().hex[:8]}"
@@ -50,28 +50,29 @@ class ScriptChain:
         self.callbacks = callbacks or []
         self.max_context_tokens = max_context_tokens
         
-        # Convert llm_config dict to LLMConfig instance
-        default_llm_config = {
-            "model": "gpt-4",
-            "api_key": os.getenv("OPENAI_API_KEY"),
-            "max_context_tokens": max_context_tokens,
-            "temperature": 0.7,
-            "max_tokens": 500
-        }
-        if llm_config:
+        # Convert llm_config dict to LLMConfig instance if needed
+        if isinstance(llm_config, dict):
+            default_llm_config = {
+                "model": "gpt-4",
+                "api_key": os.getenv("OPENAI_API_KEY"),
+                "max_context_tokens": max_context_tokens,
+                "temperature": 0.7,
+                "max_tokens": 500
+            }
             default_llm_config.update(llm_config)
-        self.llm_config = LLMConfig(**default_llm_config)
+            self.llm_config = LLMConfig(**default_llm_config)
+        else:
+            self.llm_config = llm_config or LLMConfig(
+                model="gpt-4",
+                api_key=os.getenv("OPENAI_API_KEY"),
+                max_context_tokens=max_context_tokens,
+                temperature=0.7,
+                max_tokens=500
+            )
         
-        # Initialize vector store with configurable settings
-        vs_config = VectorStoreConfig(
-            index_name=vector_store_config.get('index_name', os.getenv('PINECONE_INDEX', 'default-index')),
-            environment=vector_store_config.get('environment', os.getenv('PINECONE_ENV', 'us-west1')),
-            dimension=vector_store_config.get('dimension', 384),
-            pod_type=vector_store_config.get('pod_type', 'p1'),
-            replicas=vector_store_config.get('replicas', 1)
-        ) if vector_store_config else None
-        
-        self.vector_store = PineconeVectorStore(vs_config) if vs_config else None
+        # Initialize vector store if config is provided
+        self.vector_store_config = vector_store_config
+        self.vector_store = PineconeVectorStore(vector_store_config) if vector_store_config else None
         
         # Custom context manager using graph structure
         self.context = GraphContextManager(

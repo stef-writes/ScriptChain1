@@ -116,6 +116,7 @@ class TextGenerationNode(BaseNode):
         self.llm_config = llm_config
         self.callbacks = callbacks or []
         self.type = "llm"
+        self.metadata = config.metadata
         
         # Initialize LLM
         self.llm = ChatOpenAI(
@@ -196,49 +197,33 @@ class TextGenerationNode(BaseNode):
             result = NodeExecutionResult(
                 success=True,
                 output=output,
-                metadata=NodeMetadata(
-                    node_id=self.config.id,
-                    node_type=self.type,
-                    version="1.0.0"
-                ),
+                metadata=self.metadata,
                 usage=UsageMetadata(
-                    prompt_tokens=response.llm_output.get('token_usage', {}).get('prompt_tokens', 0),
-                    completion_tokens=response.llm_output.get('token_usage', {}).get('completion_tokens', 0),
-                    total_tokens=response.llm_output.get('token_usage', {}).get('total_tokens', 0)
-                ),
-                execution_time=execution_time,
-                context_used=inputs
+                    start_time=datetime.fromtimestamp(start_time),
+                    end_time=datetime.fromtimestamp(time.time()),
+                    execution_time=execution_time,
+                    tokens_used=response.llm_output.get("token_usage", {}).get("total_tokens", 0)
+                )
             )
             
-            # Update context with the result
-            self.context_manager.update_context(self.config.id, result)
-            
-            # Call callbacks
-            for callback in self.callbacks:
-                await callback.on_node_complete(self.config.id, result)
-            
-            return result
+            return await self.post_execute(result)
             
         except Exception as e:
-            logger.error(f"Error executing node {self.config.id}: {str(e)}")
+            error_msg = OpenAIErrorHandler.format_error_message(e)
+            logger.error(f"Error executing node {self.node_id}: {error_msg}")
+            logger.debug(traceback.format_exc())
             
-            # Create error result
-            result = NodeExecutionResult(
+            return NodeExecutionResult(
                 success=False,
-                error=str(e),
-                metadata=NodeMetadata(
-                    node_id=self.config.id,
-                    node_type=self.type,
-                    version="1.0.0"
-                ),
-                execution_time=time.time() - start_time
+                error=error_msg,
+                metadata=self.metadata,
+                usage=UsageMetadata(
+                    start_time=datetime.fromtimestamp(start_time),
+                    end_time=datetime.fromtimestamp(time.time()),
+                    execution_time=time.time() - start_time,
+                    tokens_used=0
+                )
             )
-            
-            # Call error callbacks
-            for callback in self.callbacks:
-                await callback.on_node_error(self.config.id, e)
-            
-            return result
 
     async def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate inputs against context rules"""

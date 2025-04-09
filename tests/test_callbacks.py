@@ -14,13 +14,13 @@ async def test_logging_callback():
     callback = LoggingCallback()
     
     # Test chain events
-    callback.on_chain_start("test_chain", {"input": "test"})
-    callback.on_chain_end("test_chain", {"output": "test"})
+    await callback.on_chain_start("test_chain", {"input": "test"})
+    await callback.on_chain_end("test_chain", {"output": "test"})
     
     # Test node events
-    callback.on_node_start("test_chain", "node1", {"input": "test"})
-    callback.on_node_end("test_chain", "node1", {"output": "test"})
-    callback.on_node_error("test_chain", "node1", Exception("Test error"))
+    await callback.on_node_start("test_chain", "node1", {"input": "test"})
+    await callback.on_node_end("test_chain", "node1", {"output": "test"})
+    await callback.on_node_error("test_chain", "node1", Exception("Test error"))
 
 @pytest.mark.asyncio
 async def test_metrics_callback():
@@ -28,12 +28,12 @@ async def test_metrics_callback():
     callback = MetricsCallback()
     
     # Test chain events
-    callback.on_chain_start("test_chain", {"input": "test"})
-    callback.on_chain_end("test_chain", {"output": "test"})
+    await callback.on_chain_start("test_chain", {"input": "test"})
+    await callback.on_chain_end("test_chain", {"output": "test"})
     
     # Test node events
-    callback.on_node_start("test_chain", "node1", {"input": "test"})
-    callback.on_node_end("test_chain", "node1", {"output": "test"})
+    await callback.on_node_start("test_chain", "node1", {"input": "test"})
+    await callback.on_node_end("test_chain", "node1", {"output": "test"})
     
     # Get metrics
     metrics = callback.get_metrics()
@@ -55,11 +55,11 @@ async def test_callback_error_handling():
     callback = LoggingCallback()
     
     # Test with invalid data
-    callback.on_chain_start("test_chain", None)
-    callback.on_chain_end("test_chain", None)
-    callback.on_node_start("test_chain", "node1", None)
-    callback.on_node_end("test_chain", "node1", None)
-    callback.on_node_error("test_chain", "node1", Exception("Test error"))
+    await callback.on_chain_start("test_chain", None)
+    await callback.on_chain_end("test_chain", None)
+    await callback.on_node_start("test_chain", "node1", None)
+    await callback.on_node_end("test_chain", "node1", None)
+    await callback.on_node_error("test_chain", "node1", Exception("Test error"))
 
 @pytest.mark.asyncio
 async def test_metrics_export():
@@ -67,8 +67,8 @@ async def test_metrics_export():
     callback = MetricsCallback()
     
     # Generate some metrics
-    callback.on_chain_start("test_chain", {"input": "test"})
-    callback.on_chain_end("test_chain", {"output": "test"})
+    await callback.on_chain_start("test_chain", {"input": "test"})
+    await callback.on_chain_end("test_chain", {"output": "test"})
     
     # Export metrics
     callback.export_metrics("test_metrics.json")
@@ -84,10 +84,10 @@ async def test_callback_chain_events():
     callback = MetricsCallback()
     
     # Test chain lifecycle
-    callback.on_chain_start("test_chain", {"input": "test"})
-    callback.on_node_start("test_chain", "node1", {"input": "test"})
-    callback.on_node_end("test_chain", "node1", {"output": "test"})
-    callback.on_chain_end("test_chain", {"output": "test"})
+    await callback.on_chain_start("test_chain", {"input": "test"})
+    await callback.on_node_start("test_chain", "node1", {"input": "test"})
+    await callback.on_node_end("test_chain", "node1", {"output": "test"})
+    await callback.on_chain_end("test_chain", {"output": "test"})
     
     # Get metrics
     metrics = callback.get_metrics()
@@ -106,11 +106,11 @@ async def test_callback_node_events():
     callback = MetricsCallback()
     
     # Initialize chain metrics first
-    callback.on_chain_start("test_chain", {"input": "test"})
+    await callback.on_chain_start("test_chain", {"input": "test"})
     
     # Test node lifecycle
-    callback.on_node_start("test_chain", "node1", {"input": "test"})
-    callback.on_node_end("test_chain", "node1", {"output": "test"})
+    await callback.on_node_start("test_chain", "node1", {"input": "test"})
+    await callback.on_node_end("test_chain", "node1", {"output": "test"})
     
     # Get metrics
     metrics = callback.get_metrics()
