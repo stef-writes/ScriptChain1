@@ -49,70 +49,52 @@ class BaseNode(ABC):
         """
         # Validate inputs first
         if not await self.validate_input(context):
-            raise ValueError("Input validation failed")
+            raise ValueError(f"Input validation failed for node {self.node_id}")
             
+        # Return the context (can be modified by subclasses)
         return context
         
     async def post_execute(self, result: NodeExecutionResult) -> NodeExecutionResult:
-        """Process results after execution.
+        """Process and potentially modify the execution result.
         
         This hook runs after execute() and can be used to:
-        - Transform results
-        - Add metadata
+        - Transform the result
+        - Add additional metadata
         - Perform cleanup
-        - Log execution data
         
         Args:
             result: The execution result
             
         Returns:
             Modified execution result
+            
+        Raises:
+            ValueError: If result processing fails
         """
+        # Return the result (can be modified by subclasses)
         return result
         
     async def validate_input(self, context: Dict[str, Any]) -> bool:
-        """Validate input context against the node's input schema.
-        
-        Uses Pydantic to validate that:
-        - All required fields are present
-        - Field types match schema
-        - No unexpected fields
+        """Validate the input context against the node's schema.
         
         Args:
-            context: The context to validate
+            context: The execution context
             
         Returns:
             True if validation passes, False otherwise
         """
-        if not self.config.input_schema:
-            return True
-            
-        try:
-            # Create a dynamic Pydantic model from input schema
-            fields = {
-                key: (eval(type_str), ...) 
-                for key, type_str in self.config.input_schema.items()
-            }
-            InputModel = create_model('InputModel', **fields)
-            
-            # Validate context against model
-            InputModel(**context)
-            return True
-            
-        except (ValidationError, NameError, SyntaxError):
-            return False
-    
+        # Default implementation always returns True
+        # Subclasses should override this to implement validation
+        return True
+        
     @abstractmethod
     async def execute(self, context: Dict[str, Any]) -> NodeExecutionResult:
-        """Execute node logic (abstract method).
-        
-        This method should be implemented by concrete node classes.
-        It will be called after pre_execute() and before post_execute().
+        """Execute the node with the given context.
         
         Args:
-            context: The validated execution context
+            context: The execution context
             
         Returns:
-            Execution result
+            NodeExecutionResult containing the execution result
         """
         pass

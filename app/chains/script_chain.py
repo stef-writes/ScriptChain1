@@ -346,13 +346,13 @@ class ScriptChain:
                 attempt = 0
                 max_retries = 3
                 
+                # Get context for this node
+                node_context = self.context.get_node_context(node_id)
+                
                 while attempt < max_retries:
                     try:
-                        # Simple execution with error handling
-                        if hasattr(self, 'execute_node'):  # For test mocking
-                            result = await self.execute_node(node_id)
-                        else:
-                            result = await node.execute()
+                        # Pass context to the node's execute method
+                        result = await node.execute(node_context)
                         
                         if result.success:
                             # Update context and metrics
@@ -502,9 +502,13 @@ class ScriptChain:
         start_time = datetime.utcnow()
         attempt = 0
         
+        # Get context for this node
+        node_context = self.context.get_node_context(node_id)
+        
         while attempt < max_retries:
             try:
-                result = await node.execute()
+                # Pass context to the node's execute method
+                result = await node.execute(node_context)
                 if result.success:
                     return result
                 attempt += 1

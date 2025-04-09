@@ -210,8 +210,8 @@ class TextGenerationNode(BaseNode):
                 context_used=inputs
             )
             
-            # Update context
-            self.context_manager.update_context(self.config.id, output)
+            # Update context with the result
+            self.context_manager.update_context(self.config.id, result)
             
             # Call callbacks
             for callback in self.callbacks:

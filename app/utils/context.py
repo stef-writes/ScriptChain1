@@ -6,9 +6,11 @@ from typing import Dict, List, Optional, Any, Union
 import networkx as nx
 from app.models.node_models import NodeExecutionResult, NodeMetadata, ContextFormat, ContextRule, InputMapping
 from app.utils.logging import logger
-from app.models.vector_store import VectorStoreConfig
+from app.models.vector_store import VectorStoreConfig, SimilarityMetric
 from app.vector.pinecone_store import PineconeVectorStore
+from app.vector.pinecone_inference_store import PineconeInferenceVectorStore
 import json
+import os
 
 class GraphContextManager:
     """Manages context for graph-based LLM node execution"""
@@ -34,11 +36,21 @@ class GraphContextManager:
             vs_config = VectorStoreConfig(
                 index_name=vector_store_config.get('index_name', 'default-index'),
                 environment=vector_store_config.get('environment', 'us-west1'),
-                dimension=vector_store_config.get('dimension', 384),
+                dimension=vector_store_config.get('dimension', 1024),
                 pod_type=vector_store_config.get('pod_type', 'p1'),
-                replicas=vector_store_config.get('replicas', 1)
+                replicas=vector_store_config.get('replicas', 1),
+                use_inference=vector_store_config.get('use_inference', True),
+                inference_model=vector_store_config.get('inference_model', 'llama-text-embed-v2'),
+                api_key=vector_store_config.get('api_key', os.getenv('PINECONE_API_KEY')),
+                host=vector_store_config.get('host'),
+                metric=vector_store_config.get('metric', SimilarityMetric.COSINE)
             )
-            self.vector_store = PineconeVectorStore(vs_config)
+            
+            # Use the appropriate vector store implementation
+            if vs_config.use_inference:
+                self.vector_store = PineconeInferenceVectorStore(vs_config)
+            else:
+                self.vector_store = PineconeVectorStore(vs_config)
         else:
             self.vector_store = None
             
@@ -96,31 +108,76 @@ class GraphContextManager:
         context_rules: Optional[Dict[str, ContextRule]] = None,
         format_specs: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Get context for a node with filtering and formatting"""
-        contexts = {}
-        predecessors = list(self.graph.predecessors(node_id))
+        """Get context for a specific node.
         
-        # Filter inputs if specified
-        if selected_inputs:
-            predecessors = [p for p in predecessors if p in selected_inputs]
-        
-        for input_id in predecessors:
-            # Get context from cache or compute
-            if input_id in self.context_cache:
-                content = self.context_cache[input_id]
-            else:
-                content = self.get_node_output(input_id)
-                self.context_cache[input_id] = content
+        Args:
+            node_id: ID of the node to get context for
+            selected_inputs: Optional list of input keys to include
+            context_rules: Optional rules for context formatting
+            format_specs: Optional format specifications
             
-            # Apply context rules if specified
-            rule = context_rules.get(input_id) if context_rules else None
-            if rule and rule.include:
-                formatted_content = self.format_context(content, rule, format_specs)
-                contexts[input_id] = formatted_content
-            elif not rule or rule.include:
-                contexts[input_id] = content
+        Returns:
+            Dictionary containing the node's context
+        """
+        # Get the node's context
+        context = self.get_context(node_id)
         
-        return contexts
+        # If no context rules provided, return the raw context
+        if not context_rules:
+            return context
+            
+        # Apply context rules
+        formatted_context = {}
+        for key, rule in context_rules.items():
+            if key in context:
+                formatted_context[key] = self.format_context(
+                    context[key],
+                    rule,
+                    format_specs
+                )
+                
+        return formatted_context
+        
+    def update_context(self, node_id: str, content: Any) -> None:
+        """Update context for a node.
+        
+        Args:
+            node_id: ID of the node to update context for
+            content: Content to update context with
+        """
+        # If content is a NodeExecutionResult, extract the output
+        if hasattr(content, 'output'):
+            self.set_context(node_id, {'output': content.output})
+        else:
+            self.set_context(node_id, {'output': content})
+            
+        # Log the update
+        logger.debug(f"Updated context for node {node_id}")
+        
+    def get_context(self, node_id: str) -> Dict[str, Any]:
+        """Get the raw context for a node.
+        
+        Args:
+            node_id: ID of the node to get context for
+            
+        Returns:
+            Dictionary containing the node's context
+        """
+        # If the node has no context, return an empty dict
+        if node_id not in self.context_cache:
+            return {}
+            
+        return self.context_cache[node_id]
+        
+    def set_context(self, node_id: str, context: Dict[str, Any]) -> None:
+        """Set the context for a node.
+        
+        Args:
+            node_id: ID of the node to set context for
+            context: Context to set
+        """
+        self.context_cache[node_id] = context
+        logger.debug(f"Set context for node {node_id}")
 
     def get_node_output(self, node_id: str) -> Any:
         """Get the output of a specific node.
@@ -145,10 +202,6 @@ class GraphContextManager:
         logger.warning(f"No output found for node {node_id} in context cache")
         return None
 
-    def update_context(self, node_id: str, content: Any) -> None:
-        """Update the context for a specific node"""
-        self.context_cache[node_id] = content
-
     def clear_context(self, node_id: Optional[str] = None) -> None:
         """Clear context cache for a specific node or all nodes"""
         if node_id:
@@ -167,17 +220,6 @@ class GraphContextManager:
                 return False
         return True
 
-    def get_context(self, node_id: str) -> Dict[str, Any]:
-        """Get context for a specific node.
-        
-        Args:
-            node_id: ID of the node to get context for
-            
-        Returns:
-            Dictionary containing context for the node
-        """
-        return self.context_cache.get(node_id, {})
-        
     async def get_context_with_optimization(
         self,
         node_id: str,
@@ -204,11 +246,19 @@ class GraphContextManager:
             base_context = self.get_context(node_id)
             
             # Get similar contexts from vector store
-            similar_contexts = await self.vector_store.similarity_search(
-                query,
-                k=k,
-                threshold=threshold
-            )
+            if isinstance(self.vector_store, PineconeInferenceVectorStore):
+                similar_contexts = await self.vector_store.search_text(
+                    query=query,
+                    top_k=k,
+                    filter_metadata={"node_id": node_id}
+                )
+            else:
+                # Fall back to the old method
+                similar_contexts = await self.vector_store.similarity_search(
+                    query,
+                    k=k,
+                    threshold=threshold
+                )
             
             # Merge contexts while respecting token limit
             merged_context = self._merge_contexts(base_context, similar_contexts)
@@ -250,15 +300,6 @@ class GraphContextManager:
                 
         return context
             
-    def set_context(self, node_id: str, context: Dict[str, Any]) -> None:
-        """Set context for a node.
-        
-        Args:
-            node_id: ID of the node to set context for
-            context: Context dictionary to set
-        """
-        self.context_cache[node_id] = context
-        
     def log_error(self, node_id: str, error: Exception) -> None:
         """Log error for a node.
         

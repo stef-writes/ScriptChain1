@@ -1,5 +1,5 @@
 """
-Pinecone vector store implementation
+Pinecone vector store implementation with native inference
 """
 
 from typing import List, Dict, Any, Optional, Tuple
@@ -21,17 +21,18 @@ from app.vector.base import (
 
 logger = logging.getLogger(__name__)
 
-class PineconeVectorStore(VectorStoreInterface):
-    """Vector store implementation using Pinecone"""
+class PineconeInferenceVectorStore(VectorStoreInterface):
+    """Vector store implementation using Pinecone with native inference"""
     
     def __init__(self, config: VectorStoreConfig):
-        """Initialize Pinecone vector store.
+        """Initialize Pinecone vector store with inference capabilities.
         
         Args:
             config: Vector store configuration
         """
         super().__init__(config)
         self.index = None
+        self.pinecone = None
         self.batch_processor = BatchProcessor(config.batch_size)
         
     async def initialize(self) -> None:
@@ -173,6 +174,72 @@ class PineconeVectorStore(VectorStoreInterface):
         except Exception as e:
             raise VectorStoreError(f"Failed to add vectors: {str(e)}")
     
+    async def add_texts(
+        self,
+        texts: List[str],
+        ids: Optional[List[str]] = None,
+        metadata: Optional[List[Dict[str, Any]]] = None,
+        namespace: str = "default"
+    ) -> None:
+        """Add texts to Pinecone using native inference.
+        
+        Args:
+            texts: List of texts to embed and add
+            ids: Optional list of IDs
+            metadata: Optional list of metadata dictionaries
+            namespace: Namespace to add vectors to
+            
+        Raises:
+            VectorStoreError: If operation fails
+        """
+        if not self.pinecone or not self.index:
+            raise VectorStoreError("Vector store not initialized")
+            
+        if not texts:
+            raise VectorStoreError("No texts provided")
+            
+        # Generate IDs if not provided
+        if not ids:
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            ids = [f"text_{timestamp}_{i}" for i in range(len(texts))]
+            
+        # Generate metadata if not provided
+        if not metadata:
+            metadata = [{"text": text} for text in texts]
+            
+        # Get embeddings using Pinecone inference
+        embeddings = self.pinecone.inference.embed(
+            model=self.config.inference_model,
+            inputs=texts,
+            parameters={
+                "input_type": "passage"
+            }
+        )
+        
+        # Prepare vectors for upsert
+        vectors = []
+        for i, (id, embedding, meta) in enumerate(zip(ids, embeddings, metadata)):
+            vectors.append({
+                "id": id,
+                "values": embedding['values'],
+                "metadata": meta
+            })
+            
+        # Define batch operation
+        async def upsert_batch(batch: List[Dict[str, Any]]) -> None:
+            await with_retry(
+                lambda: self.index.upsert(
+                    vectors=batch,
+                    namespace=namespace
+                )
+            )
+        
+        try:
+            await self.batch_processor.process(vectors, upsert_batch)
+            logger.info(f"Added {len(texts)} texts to Pinecone")
+        except Exception as e:
+            raise VectorStoreError(f"Failed to add texts: {str(e)}")
+    
     async def search(
         self,
         query_vector: List[float],
@@ -229,6 +296,68 @@ class PineconeVectorStore(VectorStoreInterface):
             
         except Exception as e:
             raise VectorStoreError(f"Failed to search vectors: {str(e)}")
+    
+    async def search_text(
+        self,
+        query: str,
+        top_k: int = 5,
+        filter_metadata: Optional[Dict[str, Any]] = None,
+        namespace: str = "default"
+    ) -> List[VectorSearchResult]:
+        """Search for similar texts in Pinecone.
+        
+        Args:
+            query: Query text
+            top_k: Number of results to return
+            filter_metadata: Optional metadata filter
+            namespace: Namespace to search in
+            
+        Returns:
+            List of search results
+            
+        Raises:
+            VectorStoreError: If operation fails
+        """
+        if not self.pinecone or not self.index:
+            raise VectorStoreError("Vector store not initialized")
+        
+        try:
+            # Get embedding using Pinecone inference
+            embedding = self.pinecone.inference.embed(
+                model=self.config.inference_model,
+                inputs=[query],
+                parameters={
+                    "input_type": "query"
+                }
+            )
+            
+            # Perform search
+            results = await with_retry(
+                lambda: self.index.query(
+                    vector=embedding[0]['values'],
+                    top_k=top_k,
+                    include_values=False,
+                    include_metadata=True,
+                    filter=filter_metadata,
+                    namespace=namespace
+                )
+            )
+            
+            # Convert results to VectorSearchResult objects
+            search_results = []
+            for match in results.matches:
+                search_results.append(
+                    VectorSearchResult(
+                        id=match.id,
+                        score=float(match.score),
+                        metadata=match.metadata
+                    )
+                )
+            
+            return search_results
+            
+        except Exception as e:
+            raise VectorStoreError(f"Failed to search texts: {str(e)}")
     
     async def delete_vectors(self, ids: List[str]) -> None:
         """Delete vectors from Pinecone.

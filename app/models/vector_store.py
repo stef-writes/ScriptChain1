@@ -12,18 +12,22 @@ class SimilarityMetric(str, Enum):
     DOT_PRODUCT = "dot_product"
 
 class VectorStoreConfig(BaseModel):
-    """Configuration for vector store operations"""
-    index_name: str = Field(..., description="Name of the vector index")
-    dimension: int = Field(384, description="Must match embedding model dimension")
-    environment: str = Field(..., description="Pinecone environment")
-    metric: SimilarityMetric = Field(SimilarityMetric.COSINE, description="Similarity metric")
-    batch_size: int = Field(100, description="Batch size for operations")
-    pod_type: str = Field("p1", description="Pinecone pod type")
-    replicas: int = Field(1, description="Number of replicas")
+    """Configuration for vector store"""
+    index_name: str = Field(..., description="Name of the vector store index")
+    environment: str = Field(..., description="Environment name")
+    dimension: int = Field(..., description="Dimension of vectors")
+    metric: SimilarityMetric = Field(..., description="Distance metric for similarity search")
+    pod_type: str = Field(..., description="Type of pod")
+    replicas: int = Field(..., description="Number of replicas")
+    use_inference: bool = Field(..., description="Whether to use inference")
+    inference_model: str = Field(..., description="Model to use for inference")
+    api_key: str = Field(..., description="API key")
+    host: Optional[str] = Field(None, description="Host URL for the vector store")
     metadata_config: Dict[str, str] = Field(
         default_factory=dict,
         description="Metadata field configuration"
     )
+    batch_size: int = Field(100, description="Batch size for operations")
 
 class EmbeddingConfig(BaseModel):
     """Configuration for embedding operations"""

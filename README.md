@@ -26,11 +26,14 @@ The node system consists of specialized nodes that handle different aspects of A
 ### Context Management
 The context management system provides:
 
-- Vector store integration for semantic search
+- Vector store integration for semantic search and context optimization
+- Support for multiple vector store implementations (Pinecone, Pinecone Inference)
+- Context versioning and retrieval
 - Context window management
 - Format-specific context rules
 - Input validation and transformation
 - Token usage optimization
+- Customizable context formatting (Text, JSON, Markdown, Code)
 
 ### Workflow Execution
 The workflow execution system features:
@@ -72,6 +75,22 @@ node_config = NodeConfig(
     format_specifications={
         "input": {"prefix": "Input: "}
     }
+)
+```
+
+### Vector Store Configuration
+```python
+vector_store_config = VectorStoreConfig(
+    index_name="your-index",
+    environment="your-env",
+    dimension=384,
+    metric=SimilarityMetric.COSINE,
+    pod_type="p1",
+    replicas=1,
+    use_inference=True,
+    inference_model="llama-text-embed-v2",
+    api_key="your-api-key",
+    host="your-host-url"
 )
 ```
 
