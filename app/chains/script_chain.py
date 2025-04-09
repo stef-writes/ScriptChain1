@@ -230,6 +230,17 @@ class ScriptChain:
         start_time = datetime.utcnow()
         
         try:
+            # Trigger chain_start callback
+            await self._trigger_callbacks('chain_start', NodeExecutionResult(
+                success=True,
+                output={},
+                metadata=NodeMetadata(
+                    node_id=self.chain_id,
+                    node_type="chain",
+                    start_time=start_time
+                )
+            ))
+            
             # Calculate execution levels
             levels = self._calculate_execution_levels()
             
@@ -247,49 +258,62 @@ class ScriptChain:
                             error_messages.append(f"{node_id}: {result.error}")
                     
                     error_msg = f"Execution failed at level {level.level}: {'; '.join(error_messages)}"
-                    return NodeExecutionResult(
+                    error_result = NodeExecutionResult(
                         success=False,
                         error=error_msg,
                         output=results,
                         metadata=NodeMetadata(
-                            node_id=f"chain_{uuid4().hex[:8]}",
+                            node_id=self.chain_id,
                             node_type="chain",
                             start_time=start_time,
                             end_time=datetime.utcnow(),
                             error_type="LevelExecutionError"
                         )
                     )
+                    
+                    # Trigger chain_end callback with error
+                    await self._trigger_callbacks('chain_end', error_result)
+                    return error_result
             
             # All levels completed successfully
-            return NodeExecutionResult(
+            success_result = NodeExecutionResult(
                 success=True,
                 output=results,
                 metadata=NodeMetadata(
-                    node_id=f"chain_{uuid4().hex[:8]}",
+                    node_id=self.chain_id,
                     node_type="chain",
                     start_time=start_time,
                     end_time=datetime.utcnow()
                 )
             )
             
+            # Trigger chain_end callback with success
+            await self._trigger_callbacks('chain_end', success_result)
+            return success_result
+            
         except Exception as e:
             logger.error(f"Chain execution failed: {str(e)}")
-            return NodeExecutionResult(
+            error_result = NodeExecutionResult(
                 success=False,
                 error=str(e),
                 output=None,
                 metadata=NodeMetadata(
-                    node_id=f"chain_{uuid4().hex[:8]}",
+                    node_id=self.chain_id,
                     node_type="chain",
                     start_time=start_time,
                     end_time=datetime.utcnow(),
                     error_type=e.__class__.__name__
                 )
             )
+            
+            # Trigger chain_end callback with error
+            await self._trigger_callbacks('chain_end', error_result)
+            return error_result
 
     async def _process_level(self, level: ExecutionLevel) -> NodeExecutionResult:
         """Process all nodes in a level with controlled concurrency"""
         semaphore = asyncio.Semaphore(self.concurrency_level)
+        start_time = datetime.utcnow()
         
         async def process_node(node_id: str) -> Tuple[str, NodeExecutionResult]:
             async with semaphore:
@@ -318,57 +342,88 @@ class ScriptChain:
                         )
                     )
                 
-                start_time = datetime.utcnow()
+                node_start_time = datetime.utcnow()
+                attempt = 0
+                max_retries = 3
                 
-                try:
-                    # Simple execution with error handling
-                    if hasattr(self, 'execute_node'):  # For test mocking
-                        result = await self.execute_node(node_id)
-                    else:
-                        result = await node.execute()
-                    
-                    # Update context and metrics
-                    await self.context.update(node_id, result)
-                    self._update_metrics(node_id, result)
-                    
-                    await self._trigger_callbacks('node_end', NodeExecutionResult(
-                        success=True,
-                        output={
-                            'node_id': node_id,
-                            'result': result.model_dump(),
-                            'level': level.level
-                        },
-                        metadata=NodeMetadata(
-                            node_id=node_id,
-                            node_type=node.type if hasattr(node, 'type') else "unknown",
-                            start_time=start_time,
-                            end_time=datetime.utcnow()
+                while attempt < max_retries:
+                    try:
+                        # Simple execution with error handling
+                        if hasattr(self, 'execute_node'):  # For test mocking
+                            result = await self.execute_node(node_id)
+                        else:
+                            result = await node.execute()
+                        
+                        if result.success:
+                            # Update context and metrics
+                            self.context.update_context(node_id, result)
+                            self._update_metrics(node_id, result)
+                            
+                            await self._trigger_callbacks('node_end', NodeExecutionResult(
+                                success=True,
+                                output={
+                                    'node_id': node_id,
+                                    'result': result.model_dump(),
+                                    'level': level.level
+                                },
+                                metadata=NodeMetadata(
+                                    node_id=node_id,
+                                    node_type=node.type if hasattr(node, 'type') else "unknown",
+                                    start_time=node_start_time,
+                                    end_time=datetime.utcnow()
+                                )
+                            ))
+                            
+                            return node_id, result
+                        
+                        attempt += 1
+                        if attempt < max_retries:
+                            await asyncio.sleep(1 * attempt)  # Exponential backoff
+                            continue
+                            
+                    except Exception as e:
+                        attempt += 1
+                        if attempt < max_retries:
+                            await asyncio.sleep(1 * attempt)  # Exponential backoff
+                            continue
+                        
+                        error_result = NodeExecutionResult(
+                            success=False,
+                            error=str(e),
+                            metadata=NodeMetadata(
+                                node_id=node_id,
+                                node_type=node.type if hasattr(node, 'type') else "unknown",
+                                start_time=node_start_time,
+                                end_time=datetime.utcnow(),
+                                error_type=e.__class__.__name__,
+                                error_traceback=traceback.format_exc()
+                            )
                         )
-                    ))
-                    
-                    return node_id, result
-                    
-                except Exception as e:
-                    error_result = NodeExecutionResult(
-                        success=False,
-                        error=str(e),
-                        metadata=NodeMetadata(
-                            node_id=node_id,
-                            node_type=node.type if hasattr(node, 'type') else "unknown",
-                            start_time=start_time,
-                            end_time=datetime.utcnow(),
-                            error_type=e.__class__.__name__,
-                            error_traceback=traceback.format_exc()
-                        )
+                        await self._trigger_callbacks('node_error', error_result)
+                        return node_id, error_result
+                
+                # If we get here, we've exhausted all retries
+                error_result = NodeExecutionResult(
+                    success=False,
+                    error=f"Node {node_id} failed after {max_retries} attempts",
+                    metadata=NodeMetadata(
+                        node_id=node_id,
+                        node_type=node.type if hasattr(node, 'type') else "unknown",
+                        start_time=node_start_time,
+                        end_time=datetime.utcnow(),
+                        error_type="MaxRetriesExceeded"
                     )
-                    await self._trigger_callbacks('node_error', error_result)
-                    return node_id, error_result
+                )
+                await self._trigger_callbacks('node_error', error_result)
+                return node_id, error_result
 
         tasks = [process_node(node_id) for node_id in level.node_ids]
         results = await asyncio.gather(*tasks)
+        results_dict = dict(results)  # Convert list of tuples to dictionary
+        
         return NodeExecutionResult(
-            success=all(r.success for nid, r in results.items()),
-            output=dict(results),
+            success=all(r.success for r in results_dict.values()),
+            output=results_dict,
             metadata=NodeMetadata(
                 node_id=self.chain_id,
                 node_type="chain",
@@ -433,34 +488,57 @@ class ScriptChain:
             except Exception as e:
                 logger.error(f"Callback error in {callback.__class__.__name__}: {e}")
 
-    async def execute_node(self, node_id: str) -> NodeExecutionResult:
-        """Execute a single node.
+    async def execute_node(self, node_id: str, max_retries: int = 3) -> NodeExecutionResult:
+        """Execute a single node with retry logic.
         
         Args:
             node_id: ID of the node to execute
+            max_retries: Maximum number of retry attempts
             
         Returns:
             NodeExecutionResult containing the execution result
         """
         node = self.node_registry[node_id]
         start_time = datetime.utcnow()
+        attempt = 0
         
-        try:
-            result = await node.execute()
-            return result
-        except Exception as e:
-            logger.error(f"Node {node_id} execution failed: {str(e)}")
-            return NodeExecutionResult(
-                success=False,
-                error=str(e),
-                metadata=NodeMetadata(
-                    node_id=node_id,
-                    node_type=node.type,
-                    start_time=start_time,
-                    end_time=datetime.utcnow(),
-                    error_type=e.__class__.__name__
-                )
+        while attempt < max_retries:
+            try:
+                result = await node.execute()
+                if result.success:
+                    return result
+                attempt += 1
+                if attempt < max_retries:
+                    await asyncio.sleep(1 * attempt)  # Exponential backoff
+            except Exception as e:
+                logger.error(f"Node {node_id} execution failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                attempt += 1
+                if attempt < max_retries:
+                    await asyncio.sleep(1 * attempt)  # Exponential backoff
+                else:
+                    return NodeExecutionResult(
+                        success=False,
+                        error=str(e),
+                        metadata=NodeMetadata(
+                            node_id=node_id,
+                            node_type=node.type,
+                            start_time=start_time,
+                            end_time=datetime.utcnow(),
+                            error_type=e.__class__.__name__
+                        )
+                    )
+        
+        return NodeExecutionResult(
+            success=False,
+            error=f"Node {node_id} failed after {max_retries} attempts",
+            metadata=NodeMetadata(
+                node_id=node_id,
+                node_type=node.type,
+                start_time=start_time,
+                end_time=datetime.utcnow(),
+                error_type="MaxRetriesExceeded"
             )
+        )
 
     def _find_components(self) -> List[Set[str]]:
         """Find disconnected components in the workflow graph using DFS.

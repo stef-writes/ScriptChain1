@@ -22,7 +22,7 @@ class ScriptChainCallback(ABC):
     """Abstract base class for ScriptChain callbacks"""
     
     @abstractmethod
-    def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
+    async def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
         """Called when chain execution starts.
         
         Args:
@@ -32,7 +32,7 @@ class ScriptChainCallback(ABC):
         pass
         
     @abstractmethod
-    def on_chain_end(
+    async def on_chain_end(
         self,
         chain_id: str,
         outputs: Dict[str, Any],
@@ -48,7 +48,7 @@ class ScriptChainCallback(ABC):
         pass
         
     @abstractmethod
-    def on_node_start(
+    async def on_node_start(
         self,
         chain_id: str,
         node_id: str,
@@ -64,7 +64,7 @@ class ScriptChainCallback(ABC):
         pass
         
     @abstractmethod
-    def on_node_end(
+    async def on_node_end(
         self,
         chain_id: str,
         node_id: str,
@@ -80,7 +80,7 @@ class ScriptChainCallback(ABC):
         pass
         
     @abstractmethod
-    def on_node_error(
+    async def on_node_error(
         self,
         chain_id: str,
         node_id: str,
@@ -106,13 +106,13 @@ class LoggingCallback(ScriptChainCallback):
         """
         self.log_level = log_level
         
-    def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
+    async def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
         logger.log(
             self.log_level,
             f"Starting chain execution: {chain_id}"
         )
         
-    def on_chain_end(
+    async def on_chain_end(
         self,
         chain_id: str,
         outputs: Dict[str, Any],
@@ -129,7 +129,7 @@ class LoggingCallback(ScriptChainCallback):
                 f"Chain execution completed: {chain_id}"
             )
             
-    def on_node_start(
+    async def on_node_start(
         self,
         chain_id: str,
         node_id: str,
@@ -140,7 +140,7 @@ class LoggingCallback(ScriptChainCallback):
             f"Starting node execution: {chain_id}/{node_id}"
         )
         
-    def on_node_end(
+    async def on_node_end(
         self,
         chain_id: str,
         node_id: str,
@@ -151,7 +151,7 @@ class LoggingCallback(ScriptChainCallback):
             f"Node execution completed: {chain_id}/{node_id}"
         )
         
-    def on_node_error(
+    async def on_node_error(
         self,
         chain_id: str,
         node_id: str,
@@ -169,14 +169,14 @@ class MetricsCallback(ScriptChainCallback):
         """Initialize metrics callback"""
         self.metrics: Dict[str, Dict[str, Any]] = {}
         
-    def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
+    async def on_chain_start(self, chain_id: str, inputs: Dict[str, Any]) -> None:
         self.metrics[chain_id] = {
             "start_time": time.time(),
             "inputs": inputs,
             "nodes": {}
         }
         
-    def on_chain_end(
+    async def on_chain_end(
         self,
         chain_id: str,
         outputs: Dict[str, Any],
@@ -191,7 +191,7 @@ class MetricsCallback(ScriptChainCallback):
                 "success": error is None
             })
             
-    def on_node_start(
+    async def on_node_start(
         self,
         chain_id: str,
         node_id: str,
@@ -203,7 +203,7 @@ class MetricsCallback(ScriptChainCallback):
                 "inputs": inputs
             }
             
-    def on_node_end(
+    async def on_node_end(
         self,
         chain_id: str,
         node_id: str,
@@ -218,7 +218,7 @@ class MetricsCallback(ScriptChainCallback):
                 "success": True
             })
             
-    def on_node_error(
+    async def on_node_error(
         self,
         chain_id: str,
         node_id: str,
@@ -234,10 +234,10 @@ class MetricsCallback(ScriptChainCallback):
             })
             
     def get_metrics(self) -> Dict[str, Dict[str, Any]]:
-        """Get all collected metrics.
+        """Get collected metrics.
         
         Returns:
-            Dictionary containing all chain and node metrics
+            Dictionary containing all collected metrics
         """
         return self.metrics
             

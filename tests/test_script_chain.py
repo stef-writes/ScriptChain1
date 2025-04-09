@@ -178,13 +178,14 @@ async def test_parallel_execution(script_chain: ScriptChain):
     script_chain.add_node(node2)
     
     # Mock execution results
-    async def mock_execute(*args, **kwargs):
+    async def mock_execute(node_id: str) -> NodeExecutionResult:
         return NodeExecutionResult(
             success=True,
             output={"result": "success"},
             metadata=NodeMetadata(
-                node_id=args[1],
+                node_id=node_id,
                 node_type="llm",
+                version="1.0.0",
                 start_time=datetime.utcnow(),
                 end_time=datetime.utcnow()
             )
@@ -228,24 +229,24 @@ async def test_error_handling(script_chain: ScriptChain):
     assert "Test error" in str(result.error)
 
 @pytest.mark.asyncio
-async def test_callback_integration(script_chain: ScriptChain, callbacks: Dict[str, Any]):
-    """Test callback integration during execution."""
-    # Add callbacks
-    for callback in callbacks.values():
-        script_chain.add_callback(callback)
-    
+async def test_callback_integration(script_chain: ScriptChain):
+    """Test callback integration and metrics collection."""
     # Add test node
     node = NodeConfig(
         id="test_node",
         type="llm",
         model="gpt-4",
-        prompt="Test",
+        prompt="Test prompt",
         level=0
     )
     script_chain.add_node(node)
     
-    # Mock successful execution
-    async def mock_execute(*args, **kwargs):
+    # Add metrics callback
+    metrics_callback = MetricsCallback()
+    script_chain.add_callback(metrics_callback)
+    
+    # Mock node execution
+    async def mock_execute(node_id: str) -> NodeExecutionResult:
         return NodeExecutionResult(
             success=True,
             output={"result": "success"},
@@ -270,9 +271,12 @@ async def test_callback_integration(script_chain: ScriptChain, callbacks: Dict[s
     # Execute
     result = await script_chain.execute()
     
+    # Wait a short time for callbacks to complete
+    await asyncio.sleep(0.1)
+    
     # Verify callbacks were triggered
     assert result.success
-    metrics = callbacks["metrics"].get_metrics()
+    metrics = metrics_callback.get_metrics()
     assert len(metrics) > 0
     assert any(chain_id for chain_id in metrics.keys())
 
@@ -449,28 +453,16 @@ async def test_parallel_execution_with_context(script_chain: ScriptChain):
     script_chain.add_node(node2)
     
     # Mock execution results
-    async def mock_execute(*args, **kwargs):
-        node_id = args[1]
-        if node_id == "node1":
-            return NodeExecutionResult(
-                success=True,
-                output="node1 output",
-                metadata=NodeMetadata(
-                    node_id=node_id,
-                    node_type="llm",
-                    version="1.0.0"
-                )
+    async def mock_execute(node_id: str) -> NodeExecutionResult:
+        return NodeExecutionResult(
+            success=True,
+            output={"result": f"{node_id} output"},
+            metadata=NodeMetadata(
+                node_id=node_id,
+                node_type="llm",
+                version="1.0.0"
             )
-        else:
-            return NodeExecutionResult(
-                success=True,
-                output="node2 output",
-                metadata=NodeMetadata(
-                    node_id=node_id,
-                    node_type="llm",
-                    version="1.0.0"
-                )
-            )
+        )
     
     script_chain.execute_node = mock_execute
     

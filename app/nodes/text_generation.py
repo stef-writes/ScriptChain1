@@ -27,7 +27,7 @@ from app.utils.context import GraphContextManager
 from app.nodes.base import BaseNode
 from app.utils.logging import logger
 from app.utils.tracking import track_usage
-from app.utils.callbacks import NodeCallback
+from app.utils.callbacks import ScriptChainCallback
 
 from langchain_community.chat_models import ChatOpenAI
 from langchain_core.messages import (
@@ -101,7 +101,7 @@ class TextGenerationNode(BaseNode):
         config: NodeConfig,
         context_manager: GraphContextManager,
         llm_config: LLMConfig,
-        callbacks: Optional[List[NodeCallback]] = None
+        callbacks: Optional[List[ScriptChainCallback]] = None
     ):
         """Initialize text generation node.
         
@@ -131,38 +131,42 @@ class TextGenerationNode(BaseNode):
     
     async def prepare_prompt(self, inputs: Dict[str, Any]) -> str:
         """Prepare prompt with selected context from inputs"""
-        template = self.config.prompt
-        selected_contexts = {}
+        template = self.config.prompt or ""
+        formatted_parts = []
         
         # Filter inputs based on selection
-        if self.config.input_selection:
-            selected_contexts = {
-                k: v for k, v in inputs.items() 
-                if k in self.config.input_selection
-            }
-        else:
-            selected_contexts = inputs
+        selected_contexts = (
+            {k: v for k, v in inputs.items() if k in self.config.input_selection}
+            if self.config.input_selection
+            else inputs
+        )
             
         # Apply context rules and format inputs
-        formatted_inputs = {}
         for input_id, context in selected_contexts.items():
             rule = self.config.context_rules.get(input_id)
             if rule and rule.include:
-                formatted_inputs[input_id] = self.context_manager.format_context(
+                formatted = self.context_manager.format_context(
                     context,
                     rule,
                     self.config.format_specifications.get(input_id)
                 )
+                formatted_parts.append(f"{input_id}: {formatted}")
             elif not rule or rule.include:
-                formatted_inputs[input_id] = context
+                formatted_parts.append(f"{input_id}: {context}")
 
-        # Replace placeholders in template
-        for input_id, content in formatted_inputs.items():
-            placeholder = f"{{{input_id}}}"
-            if placeholder in template:
-                template = template.replace(placeholder, str(content))
-
-        return template
+        # Combine formatted parts
+        formatted_context = "\n".join(formatted_parts)
+        
+        # If template has placeholders, replace them
+        if "{" in template and "}" in template:
+            for input_id, context in selected_contexts.items():
+                placeholder = f"{{{input_id}}}"
+                if placeholder in template:
+                    template = template.replace(placeholder, str(context))
+            return template
+        
+        # If no template or no placeholders, return formatted context
+        return formatted_context if formatted_parts else template
 
     async def execute(self, inputs: Optional[Dict[str, Any]] = None) -> NodeExecutionResult:
         """Execute the node with the given inputs"""
@@ -236,7 +240,7 @@ class TextGenerationNode(BaseNode):
             
             return result
 
-    def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
+    async def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """Validate inputs against context rules"""
         for input_id, rule in self.config.context_rules.items():
             if rule.required and input_id not in inputs:
