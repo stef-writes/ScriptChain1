@@ -506,27 +506,27 @@ class ScriptChain:
             try:
                 result = await node.execute()
                 if result.success:
-            return result
+                    return result
                 attempt += 1
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)  # Exponential backoff
-        except Exception as e:
+            except Exception as e:
                 logger.error(f"Node {node_id} execution failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 attempt += 1
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)  # Exponential backoff
                 else:
-            return NodeExecutionResult(
-                success=False,
-                error=str(e),
-                metadata=NodeMetadata(
-                    node_id=node_id,
+                    return NodeExecutionResult(
+                        success=False,
+                        error=str(e),
+                        metadata=NodeMetadata(
+                            node_id=node_id,
                             node_type=node.type,
                             start_time=start_time,
                             end_time=datetime.utcnow(),
-                    error_type=e.__class__.__name__
-                )
-            )
+                            error_type=e.__class__.__name__
+                        )
+                    )
 
         return NodeExecutionResult(
             success=False,
